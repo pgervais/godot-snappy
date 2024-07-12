@@ -16,7 +16,8 @@ var selected : Node3D = null
 var dragging = false
 var origin = Vector3()
 var origin_2d = null
-
+# The last received mouse position.
+var mouse_position = null
 # Whether the plugin is currently active.
 var is_active := false
 
@@ -33,13 +34,11 @@ func _forward_3d_draw_over_viewport(overlay):
 		overlay.draw_circle(origin_2d, 4, Color.YELLOW)
 
 func _forward_3d_gui_input(camera, event):
-	# We need mouse events to get the cursor position
-	# This means pressing the activation key when no mouse events are being sent does nothing
-	# It's rarely noticable though
 	if event is InputEventKey:
 		if event.key_label == ACTIVATION_KEY:
 			if event.pressed and not is_active:
 				is_active = true
+				_update_snap_point(camera)
 				return true
 			if not event.pressed and is_active:
 				is_active = false
@@ -49,7 +48,13 @@ func _forward_3d_gui_input(camera, event):
 				return true
 		return false
 
-	if selected == null or not event is InputEventMouse:
+	if event is InputEventMouse:
+		# We memorize the mouse position so that we can use it on a InputEventKey above.
+		mouse_position = event.position
+	else:
+		return false
+
+	if selected == null:
 		return false
 
 	var now_dragging = event.button_mask == MOUSE_BUTTON_LEFT and is_active
@@ -61,21 +66,13 @@ func _forward_3d_gui_input(camera, event):
 	dragging = now_dragging
 
 	if is_active:
-		var from = camera.project_ray_origin(event.position)
-		var direction = camera.project_ray_normal(event.position)
-		var to = from + direction * RAY_LENGTH
-
 		if not dragging:
-			var meshes = find_meshes(selected)
-			origin = find_closest_point(meshes, from, direction)
-			undo_position = selected.position
+			_update_snap_point(camera)
 
-			if origin != VECTOR_INF:
-				origin_2d = camera.unproject_position(origin)
-			else:
-				origin_2d = null
-			update_overlays()
 		elif origin != VECTOR_INF:
+			var from = camera.project_ray_origin(mouse_position)
+			var direction = camera.project_ray_normal(mouse_position)
+			var to = from + direction * RAY_LENGTH
 			origin_2d = camera.unproject_position(origin)
 			update_overlays()
 			var ids = RenderingServer.instances_cull_ray(from, to, selected.get_world_3d().scenario)
@@ -99,6 +96,22 @@ func _on_selection_changed():
 	else:
 		selected = null
 		origin = null
+
+func _update_snap_point(camera):
+	if mouse_position == null:
+		return
+	var from = camera.project_ray_origin(mouse_position)
+	var direction = camera.project_ray_normal(mouse_position)
+
+	var meshes = find_meshes(selected)
+	origin = find_closest_point(meshes, from, direction)
+	undo_position = selected.position
+
+	if origin != VECTOR_INF:
+		origin_2d = camera.unproject_position(origin)
+	else:
+		origin_2d = null
+	update_overlays()
 
 func find_meshes(node : Node3D) -> Array:
 	var meshes : Array = []
